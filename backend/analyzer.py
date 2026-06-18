@@ -84,6 +84,14 @@ def analyze_game(pgn_text):
             king_safety_score,
             king_safety
         ) = get_king_safety(board)
+        pawn_data = get_pawn_structure(board)
+        position_explanation = generate_chess_commentary(
+            material_balance,
+            center_control,
+            piece_activity,
+            king_safety,
+            pawn_data["pawn_structure"]
+        )
 
         # Checkmate detection
         if board.is_checkmate():
@@ -102,6 +110,19 @@ def analyze_game(pgn_text):
                 "black_king_safety": black_king_safety,
                 "king_safety_score": king_safety_score,
                 "king_safety": king_safety,
+                "pawn_structure": pawn_data["pawn_structure"],
+                "pawn_structure_score": pawn_data["pawn_structure_score"],
+
+                "white_doubled": pawn_data["white_doubled"],
+                "black_doubled": pawn_data["black_doubled"],
+
+                "white_isolated": pawn_data["white_isolated"],
+                "black_isolated": pawn_data["black_isolated"],
+
+                "white_passed": pawn_data["white_passed"],
+                "black_passed": pawn_data["black_passed"],
+
+                "position_explanation": position_explanation,
             })
             break
 
@@ -154,6 +175,19 @@ def analyze_game(pgn_text):
             "black_king_safety": black_king_safety,
             "king_safety_score": king_safety_score,
             "king_safety": king_safety,
+            "pawn_structure": pawn_data["pawn_structure"],
+            "pawn_structure_score": pawn_data["pawn_structure_score"],
+
+            "white_doubled": pawn_data["white_doubled"],
+            "black_doubled": pawn_data["black_doubled"],
+
+            "white_isolated": pawn_data["white_isolated"],
+            "black_isolated": pawn_data["black_isolated"],
+
+            "white_passed": pawn_data["white_passed"],
+            "black_passed": pawn_data["black_passed"],
+
+            "position_explanation": position_explanation,
         })
 
     return results
@@ -439,3 +473,246 @@ def get_king_safety(board):
         score,
         side
     )
+
+def get_pawn_files(board, color):
+
+    files = {}
+
+    for square in chess.SQUARES:
+
+        piece = board.piece_at(square)
+
+        if (
+            piece
+            and piece.color == color
+            and piece.piece_type == chess.PAWN
+        ):
+
+            file_idx = chess.square_file(square)
+
+            if file_idx not in files:
+                files[file_idx] = []
+
+            files[file_idx].append(square)
+
+    return files
+
+def get_pawn_structure(board):
+
+    white_score = 0
+    black_score = 0
+
+    white_files = get_pawn_files(board, chess.WHITE)
+    black_files = get_pawn_files(board, chess.BLACK)
+
+    # --------------------
+    # Doubled Pawns
+    # --------------------
+
+    white_doubled = 0
+    black_doubled = 0
+
+    for pawns in white_files.values():
+
+        if len(pawns) > 1:
+            white_doubled += len(pawns) - 1
+            white_score -= (len(pawns) - 1)
+
+    for pawns in black_files.values():
+
+        if len(pawns) > 1:
+            black_doubled += len(pawns) - 1
+            black_score -= (len(pawns) - 1)
+
+    # --------------------
+    # Isolated Pawns
+    # --------------------
+
+    white_isolated = 0
+    black_isolated = 0
+
+    for file_idx in white_files:
+
+        left_exists = (file_idx - 1) in white_files
+        right_exists = (file_idx + 1) in white_files
+
+        if not left_exists and not right_exists:
+
+            white_isolated += len(white_files[file_idx])
+            white_score -= len(white_files[file_idx])
+
+    for file_idx in black_files:
+
+        left_exists = (file_idx - 1) in black_files
+        right_exists = (file_idx + 1) in black_files
+
+        if not left_exists and not right_exists:
+
+            black_isolated += len(black_files[file_idx])
+            black_score -= len(black_files[file_idx])
+
+    # --------------------
+    # Passed Pawns
+    # --------------------
+
+    white_passed = 0
+    black_passed = 0
+
+    for square in board.pieces(chess.PAWN, chess.WHITE):
+
+        file_idx = chess.square_file(square)
+        rank_idx = chess.square_rank(square)
+
+        passed = True
+
+        for enemy_pawn in board.pieces(chess.PAWN, chess.BLACK):
+
+            ef = chess.square_file(enemy_pawn)
+            er = chess.square_rank(enemy_pawn)
+
+            if abs(ef - file_idx) <= 1 and er > rank_idx:
+                passed = False
+                break
+
+        if passed:
+            white_passed += 1
+            white_score += 2
+
+    for square in board.pieces(chess.PAWN, chess.BLACK):
+
+        file_idx = chess.square_file(square)
+        rank_idx = chess.square_rank(square)
+
+        passed = True
+
+        for enemy_pawn in board.pieces(chess.PAWN, chess.WHITE):
+
+            ef = chess.square_file(enemy_pawn)
+            er = chess.square_rank(enemy_pawn)
+
+            if abs(ef - file_idx) <= 1 and er < rank_idx:
+                passed = False
+                break
+
+        if passed:
+            black_passed += 1
+            black_score += 2
+
+    # --------------------
+    # Final
+    # --------------------
+
+    score = white_score - black_score
+
+    if score > 0:
+        side = "White"
+    elif score < 0:
+        side = "Black"
+    else:
+        side = "Equal"
+
+    return {
+        "pawn_structure": side,
+        "pawn_structure_score": score,
+        "white_doubled": white_doubled,
+        "black_doubled": black_doubled,
+        "white_isolated": white_isolated,
+        "black_isolated": black_isolated,
+        "white_passed": white_passed,
+        "black_passed": black_passed
+    }
+
+def generate_chess_commentary(
+    material_balance,
+    center_control,
+    piece_activity,
+    king_safety,
+    pawn_structure
+):
+
+    white_advantages = []
+    black_advantages = []
+
+    # Material
+    if material_balance.startswith("White"):
+        white_advantages.append("a material advantage")
+
+    elif material_balance.startswith("Black"):
+        black_advantages.append("a material advantage")
+
+    # Center Control
+    if center_control == "White":
+        white_advantages.append("better central control")
+
+    elif center_control == "Black":
+        black_advantages.append("better central control")
+
+    # Piece Activity
+    if piece_activity == "White":
+        white_advantages.append("more active pieces")
+
+    elif piece_activity == "Black":
+        black_advantages.append("more active pieces")
+
+    # King Safety
+    if king_safety == "White":
+        white_advantages.append("the safer king")
+
+    elif king_safety == "Black":
+        black_advantages.append("the safer king")
+
+    # Pawn Structure
+    if pawn_structure == "White":
+        white_advantages.append("the healthier pawn structure")
+
+    elif pawn_structure == "Black":
+        black_advantages.append("the healthier pawn structure")
+
+    commentary = []
+
+    if white_advantages:
+        if len(white_advantages) == 1:
+            commentary.append(
+                f"White has {white_advantages[0]}."
+            )
+        else:
+            commentary.append(
+                "White has "
+                + ", ".join(white_advantages[:-1])
+                + " and "
+                + white_advantages[-1]
+                + "."
+            )
+
+    if black_advantages:
+        if len(black_advantages) == 1:
+            commentary.append(
+                f"Black has {black_advantages[0]}."
+            )
+        else:
+            commentary.append(
+                "Black has "
+                + ", ".join(black_advantages[:-1])
+                + " and "
+                + black_advantages[-1]
+                + "."
+            )
+
+    if white_advantages and black_advantages:
+        commentary.append(
+            "The position contains dynamic imbalances for both sides."
+        )
+    elif white_advantages:
+        commentary.append(
+            "White appears to have the more comfortable position."
+        )
+    elif black_advantages:
+        commentary.append(
+            "Black appears to have the more comfortable position."
+        )
+    else:
+        commentary.append(
+            "The position is roughly balanced."
+        )
+
+    return " ".join(commentary)
